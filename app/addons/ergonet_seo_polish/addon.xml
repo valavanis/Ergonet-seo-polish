@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<addon scheme="3.0">
+    <id>ergonet_seo_polish</id>
+    <version>1.0.0</version>
+    <priority>110</priority>
+    <position>0</position>
+    <status>active</status>
+    <default_language>el</default_language>
+    <supplier>Ergonet</supplier>
+    <name>Ergonet SEO Polish</name>
+    <description>Διορθώνει τα δύο ευρήματα SEO του Lighthouse που γεννά ο πυρήνας του CS-Cart: anchors χωρίς href και links χωρίς προσβάσιμο όνομα.</description>
+    <settings>
+        <sections>
+            <section id="general">
+                <items>
+                    <item id="enabled"><type>checkbox</type><default_value>Y</default_value></item>
+                </items>
+            </section>
+        </sections>
+    </settings>
+</addon>
