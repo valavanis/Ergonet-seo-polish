@@ -119,6 +119,42 @@ function fn_ergonet_seo_polish_rewrite(string $html): string
         }
     }
 
+    // ── 2β. οι μικρογραφίες της γκαλερί δεν έχουν όνομα ─────────────────────
+    //
+    // Σε προϊόν με ΠΟΛΛΕΣ εικόνες ο πυρήνας εκπέμπει anchors που περιέχουν μόνο
+    // <img> χωρίς alt: `cm-thumbnails-mini` (μικρογραφίες) και
+    // `cm-image-previewer` (μεγέθυνση). Χωρίς προσβάσιμο όνομα ο αναγνώστης
+    // οθόνης ανακοινώνει «σύνδεσμος» και τίποτε άλλο. Δεν φαίνεται σε προϊόντα
+    // με μία εικόνα — γι᾽ αυτό έλειπε από τους ελέγχους μας μέχρι 02/09/2026.
+    //
+    // Η ετικέτα είναι το ΟΝΟΜΑ ΤΟΥ ΠΡΟΪΟΝΤΟΣ από τον h1 της ίδιας σελίδας,
+    // συν αύξοντα αριθμό. Καμία νέα γλωσσική μεταβλητή: ο αριθμός σε παρένθεση
+    // διαβάζεται το ίδιο σε κάθε γλώσσα, ενώ μια σταθερή ελληνική λέξη θα
+    // ακουγόταν λάθος στο αγγλικό storefront.
+    if (preg_match('~<h1[^>]*>(.*?)</h1>~is', $html, $h1)) {
+        $name = trim(html_entity_decode(strip_tags($h1[1]), ENT_QUOTES, 'UTF-8'));
+        if ($name !== '') {
+            $name = preg_replace('~\s+~u', ' ', $name);
+            $n = 0;
+            $out = preg_replace_callback(
+                '~<a(?![^>]*aria-label)((?=[^>]*class="[^"]*(?:cm-thumbnails-mini|cm-image-previewer)[^"]*")[^>]*)>~i',
+                static function (array $m) use ($name, &$n): string {
+                    $n++;
+                    // Ο μετρητής μετρά ΚΑΙ τις δύο οικογένειες anchor, οπότε η
+                    // αρίθμηση είναι μοναδική μέσα στη σελίδα — αυτό αρκεί, δεν
+                    // χρειάζεται να αντιστοιχεί σε θέση εικόνας.
+                    return '<a aria-label="'
+                        . htmlspecialchars($name . ' (' . $n . ')', ENT_QUOTES, 'UTF-8')
+                        . '"' . $m[1] . '>';
+                },
+                $html
+            );
+            if ($out !== null) {
+                $html = $out;
+            }
+        }
+    }
+
     // ── 3. δέσμευση ύψους για τα hero banner (CLS) ───────────────────────────
     //
     // ΠΡΕΠΕΙ να μπει στο <head>: αν φτάσει μετά την πρώτη απόδοση, η μετατόπιση
@@ -132,6 +168,27 @@ function fn_ergonet_seo_polish_rewrite(string $html): string
     $pos = strripos($html, '</body>');
     if ($pos !== false) {
         $html = substr_replace($html, fn_ergonet_seo_polish_accordion_script(), $pos, 0);
+    }
+
+    // ── 5. ορόσημο «main» ────────────────────────────────────────────────────
+    //
+    // Το θέμα δεν εκπέμπει ούτε <main> ούτε role="main" σε καμία σελίδα
+    // (μετρημένο 02/09/2026: 0 εμφανίσεις). Χωρίς αυτό, όποιος πλοηγείται με
+    // αναγνώστη οθόνης δεν μπορεί να πηδήξει στο περιεχόμενο και ακούει από την
+    // αρχή ολόκληρη την κεφαλίδα, το μενού και τη γραμμή εμπιστοσύνης.
+    //
+    // Ο ρόλος μπαίνει στο ΥΠΑΡΧΟΝ δοχείο αντί να τυλιχτεί σε νέο <main>: το
+    // `.tygh-content` κουβαλά ήδη layout, και ένα επιπλέον στοιχείο ανάμεσα σε
+    // γονέα και παιδί σπάει τους flex/grid κανόνες του θέματος.
+    //
+    // Μία μόνο αντικατάσταση: το landmark πρέπει να είναι μοναδικό, αλλιώς ο
+    // αναγνώστης βρίσκει δύο «κύρια» περιεχόμενα και το ορόσημο χάνει νόημα.
+    if (stripos($html, 'role="main"') === false && stripos($html, '<main') === false) {
+        $needle = '<div class="tygh-content clearfix"';
+        $at = stripos($html, $needle);
+        if ($at !== false) {
+            $html = substr_replace($html, $needle . ' role="main"', $at, strlen($needle));
+        }
     }
 
     return $html;
@@ -177,6 +234,79 @@ function fn_ergonet_seo_polish_cls_reserve(): string
     return '<style id="erg-cls-reserve">'
         . '@media (min-width:768px){.homepage-banners .banners.owl-carousel{min-height:26.05vw}}'
         . '@media (max-width:767px){.hidden-desktop .banners.owl-carousel{min-height:calc(100vw + 37px)}}'
+        // ── αντίθεση WCAG AA ────────────────────────────────────────────────
+        //
+        // Τρία χρώματα που ΔΕΝ υπάρχουν κυριολεκτικά σε κανένα δικό μας αρχείο:
+        // τα δύο πρώτα τα παράγει το LESS με συναρτήσεις, το τρίτο ζει στο ΓΟΝΙΚΟ
+        // θέμα (responsive/css/styles.less). Επέμβαση στο γονικό θα χανόταν στην
+        // επόμενη αναβάθμιση του CS-Cart, οπότε μπαίνουν εδώ ως override.
+        //
+        // Μετρημένα σε λευκό, 02/09/2026:
+        //   .ty-breadcrumbs__a        #A5AFB9  2,23 → #767676  4,54
+        //   .ty-value-changer__*      #C2C9D0  1,67 → #697888  4,52
+        //   .ui-accordion-header      λευκό σε #BDC3C7  1,78
+        //
+        // Στην κεφαλίδα του accordion σκουραίνει το ΚΕΙΜΕΝΟ (7,10) και όχι το
+        // φόντο: το ανοιχτό γκρι είναι μέρος της εμφάνισης, το λευκό κείμενο
+        // πάνω του ήταν απλώς αδιάβαστο.
+        . '.ty-breadcrumbs .ty-breadcrumbs__a,.ty-breadcrumbs .ty-breadcrumbs__slash{color:#767676}'
+        . '.ty-value-changer .ty-value-changer__decrease,'
+        . '.ty-value-changer .ty-value-changer__increase{color:#697888}'
+        // Ο κανόνας του θέματος είναι
+        //   .ty-accordion .ui-accordion-header.ui-state-active { background:#bdc3c7; color:white }
+        // δηλαδή ειδικότητα 0-3-0. Ένας override 0-2-0 χάνει σιωπηλά — πρέπει
+        // να επαναληφθεί ΟΛΟΚΛΗΡΟΣ ο επιλογέας, και επειδή αυτό το <style>
+        // μπαίνει τελευταίο στο <head> κερδίζει στην ισοπαλία.
+        . '.ty-accordion .ui-accordion-header.ui-state-active,'
+        . '.ty-accordion .ui-accordion-header.ui-state-active a{color:#333}'
+        // Και η ΚΛΕΙΣΤΗ κεφαλίδα: #7c7e80 πάνω στο #e5ebec δίνει 3,38:1.
+        // Ίδια απόχρωση στο 84% της φωτεινότητας → #686a6c, 4,51:1.
+        . '.ty-accordion .ui-accordion-header{color:#686a6c}'
+        // Το blog είναι core addon του CS-Cart, όχι δικό μας: #adadad σε λευκό
+        // δίνει 2,24:1. Πέντε ημερομηνίες στην αρχική.
+        . '.ty-blog .ty-blog__date,.ty-blog-grid .ty-blog__date,'
+        . '.ty-blog-recent-posts-scroller__item .ty-blog__date{color:#767676}'
+        // ── στόχοι αφής ≥24×24 ──────────────────────────────────────────────
+        //
+        // Οι μετρητές ποσότητας του πυρήνα αποδίδονται 16×16 σε mobile 412px.
+        // Δεν μεγαλώνει το ΕΙΚΟΝΙΔΙΟ, μόνο η επιφάνεια που δέχεται το δάχτυλο:
+        // το γλυφικό μένει κεντραρισμένο μέσα σε 24×24 με flex.
+        . '.ty-value-changer .ty-value-changer__decrease,'
+        . '.ty-value-changer .ty-value-changer__increase{'
+        . 'min-width:24px;min-height:24px;display:inline-flex;'
+        . 'align-items:center;justify-content:center}'
+        //
+        // Αυτόνομοι σύνδεσμοι ενέργειας που αποδίδονται 22px ψηλοί (line-height
+        // 22 σε κείμενο 13-14px). ΔΕΝ μπαίνει καθολικός κανόνας σε κάθε <a>:
+        // ένας σύνδεσμος μέσα σε παράγραφο πρέπει να μείνει inline, αλλιώς
+        // σπάει η ροή του κειμένου — και το WCAG 2.5.8 τον εξαιρεί ούτως ή
+        // άλλως. Απαριθμούνται μόνο όσοι στέκονται μόνοι τους.
+        . 'a.cm-dialog-opener,.contact-desc h2 a,'
+        . '.ty-dropdown-box__title.cm-combination>a,.brand .ty-features-list a{'
+        . 'display:inline-flex;align-items:center;justify-content:center;'
+        // Και ΠΛΑΤΟΣ: ο σύνδεσμος μάρκας «Elo» βγήκε 16px φαρδύς. Το κριτήριο
+        // είναι 24×24, όχι μόνο ύψος — ένα κοντό όνομα μάρκας κόβεται στο πλάτος.
+        . 'min-height:24px;min-width:24px}'
+        //
+        // Άγκυρες που τυλίγουν ΜΟΝΟ εικόνα (λογότυπο, μικρογραφίες scroller):
+        // ως inline στοιχεία παίρνουν το ύψος της γραμμής, όχι της εικόνας, και
+        // μετριούνται 22px ενώ η εικόνα από κάτω είναι πολύ μεγαλύτερη. Το
+        // inline-block κάνει την άγκυρα να αγκαλιάσει την εικόνα — ο στόχος
+        // γίνεται όσο και το ορατό αντικείμενο, χωρίς καμία οπτική αλλαγή.
+        . '.ty-logo-container>a,.ty-scroller-list__img-block>a{display:inline-block}'
+        //
+        // Δικό μας banner συγκατάθεσης: το «Προσαρμογή επιλογών» μετρήθηκε
+        // 356×19. Ειδικότητα 0-2-0 για να νικήσει το banner.css που φορτώνεται
+        // μετά το <head>.
+        . '.ergonet-cc-banner .ergonet-cc-banner__btn,'
+        . '.ergonet-cc-banner .ergonet-cc-banner__link{'
+        . 'display:inline-flex;align-items:center;justify-content:center;min-height:24px}'
+        //
+        // Το newsletter γράφει την υπόδειξη ΜΕΣΑ στο value (μοτίβο cm-hint του
+        // πυρήνα, όχι placeholder). Μετρήθηκε #c9c9c9 σε λευκό = 1,65:1 — το
+        // χειρότερο νούμερο ολόκληρης της σελίδας. Είναι ορατό κείμενο, άρα
+        // ισχύει το 4,5:1 κανονικά.
+        . 'input.ty-input-text.cm-hint,textarea.cm-hint{color:#767676}'
         . '</style>';
 }
 
@@ -221,8 +351,32 @@ function fn_ergonet_seo_polish_accordion_script(): string
     static $js = <<<'JS'
 <script>(function(){"use strict";
 var SEL=".cm-accordion,.ui-accordion",pending=false;
+// Ονόματα για τα <select> που φτάνουν με AJAX.
+//
+// Ο επιλογέας παραλλαγών ΔΕΝ υπάρχει στο HTML της σελίδας: τον φέρνει
+// ξεχωριστό AJAX αίτημα μετά τη φόρτωση. Το output filter του addon δεν τον
+// βλέπει ποτέ (βγαίνει νωρίς σε AJAX_REQUEST), οπότε η ΜΟΝΗ διαδρομή που τον
+// φτάνει είναι ο MutationObserver που ήδη τρέχει εδώ.
+//
+// Η ετικέτα ΔΙΑΒΑΖΕΤΑΙ από τη σελίδα, δεν εφευρίσκεται: αν δεν βρεθεί ορατό
+// κείμενο, το select μένει ως έχει. Λάθος όνομα είναι χειρότερο από κανένα —
+// ο αναγνώστης οθόνης θα διάβαζε κάτι που δεν αντιστοιχεί στο χειριστήριο.
+function labelSelects(){
+ var sels=document.querySelectorAll("select:not([aria-label]):not([aria-labelledby]):not([title])"),i;
+ for(i=0;i<sels.length;i++){
+  var el=sels[i];
+  if(el.id&&document.querySelector('label[for="'+el.id+'"]')){continue;}
+  if(el.closest&&el.closest("label")){continue;}
+  var txt="",grp=el.closest?el.closest(".ty-control-group,.ty-product-options__item,.ty-product-block__field-group"):null;
+  if(grp){var t=grp.querySelector(".ty-control-group__title,.ty-product-options__title,label");if(t){txt=t.textContent;}}
+  if(!txt){var prev=el.previousElementSibling;if(prev&&prev.textContent){txt=prev.textContent;}}
+  txt=(txt||"").replace(/\s+/g," ").replace(/[:*\s]+$/,"").trim();
+  if(txt&&txt.length<=64){el.setAttribute("aria-label",txt);}
+ }
+}
 function normalise(){
  var accs=document.querySelectorAll(SEL),i,j,n;
+ labelSelects();
  for(i=0;i<accs.length;i++){
   var a=accs[i];
   if(a.getAttribute("role")==="tablist"){a.removeAttribute("role");}
@@ -243,7 +397,7 @@ function boot(){
  normalise();
  if(typeof MutationObserver!=="function"||!document.body){return;}
  new MutationObserver(schedule).observe(document.body,
-  {subtree:true,childList:true,attributes:true,attributeFilter:["role","aria-selected"]});
+  {subtree:true,childList:true,attributes:true,attributeFilter:["role","aria-selected","aria-label"]});
 }
 if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}
 })();</script>
