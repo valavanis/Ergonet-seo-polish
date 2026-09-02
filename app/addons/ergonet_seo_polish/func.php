@@ -119,13 +119,65 @@ function fn_ergonet_seo_polish_rewrite(string $html): string
         }
     }
 
-    // ── 3. το δέντρο προσβασιμότητας του accordion ───────────────────────────
+    // ── 3. δέσμευση ύψους για τα hero banner (CLS) ───────────────────────────
+    //
+    // ΠΡΕΠΕΙ να μπει στο <head>: αν φτάσει μετά την πρώτη απόδοση, η μετατόπιση
+    // έχει ήδη συμβεί και μετρηθεί.
+    $head = stripos($html, '</head>');
+    if ($head !== false) {
+        $html = substr_replace($html, fn_ergonet_seo_polish_cls_reserve(), $head, 0);
+    }
+
+    // ── 4. το δέντρο προσβασιμότητας του accordion ───────────────────────────
     $pos = strripos($html, '</body>');
     if ($pos !== false) {
         $html = substr_replace($html, fn_ergonet_seo_polish_accordion_script(), $pos, 0);
     }
 
     return $html;
+}
+
+/**
+ * Δεσμεύει το τελικό ύψος των hero banner πριν τρέξει το owl carousel.
+ *
+ * ΤΙ ΣΥΜΒΑΙΝΕΙ: το `.banners.owl-carousel` περιέχει τέσσερα slides. Πριν
+ * αρχικοποιηθεί το owl, κάθονται ΔΙΠΛΑ-ΔΙΠΛΑ στο 25% πλάτος το καθένα — άρα το
+ * δοχείο βγαίνει στο ένα τέταρτο του τελικού ύψους. Μόλις τρέξει το owl, ένα
+ * slide πιάνει όλο το πλάτος και το δοχείο τετραπλασιάζεται, σπρώχνοντας όλη
+ * τη σελίδα προς τα κάτω.
+ *
+ * Μετρημένο 02/09/2026 στην αρχική (CPU 4× + Slow 4G):
+ *
+ *   desktop 1440   δοχείο  94 → 376 px   CLS 0,091
+ *   mobile   412   δοχείο 101 → 449 px   CLS 0,186
+ *
+ * ΓΙΑΤΙ min-height ΚΑΙ ΟΧΙ ΑΠΟΚΡΥΨΗ ΤΩΝ SLIDES: το να κρύψω τα 2-4 μέχρι να
+ * τρέξει το owl θα έδινε επίσης σταθερό ύψος, αλλά με JavaScript κλειστή ο
+ * επισκέπτης θα έβλεπε ΕΝΑ banner αντί για τέσσερα. Η προεπιλογή πρέπει να
+ * είναι η ορατή κατάσταση. Με min-height δεν κρύβεται τίποτα: το δοχείο απλώς
+ * έχει από την αρχή το ύψος που θα είχε στο τέλος, και ό,τι γίνεται μέσα του
+ * δεν μετακινεί τη σελίδα.
+ *
+ * ΔΥΟ ΜΠΛΟΚ, ΟΧΙ ΕΝΑ: το θέμα εκπέμπει χωριστό hero ανά πλάτος —
+ * `.homepage-banners` (hidden-phone) με εικόνα 1920×500, και ένα δεύτερο
+ * (hidden-desktop) με εικόνα 767×767. Διαφορετική αναλογία, διαφορετικός
+ * υπολογισμός.
+ *
+ * Τα +37px στο mobile είναι οι κουκκίδες πλοήγησης κάτω από την εικόνα
+ * (μετρημένο: δοχείο 449 px, εικόνα 412 px).
+ *
+ * Το 100vw περιλαμβάνει τη μπάρα κύλισης, οπότε σε desktop με scrollbar το
+ * δεσμευμένο ύψος βγαίνει ελάχιστα μεγαλύτερο από το πραγματικό. Υπερ-δέσμευση
+ * δίνει ένα κενό μερικών pixel· υπο-δέσμευση θα ξαναέφερνε τη μετατόπιση.
+ *
+ * @return string
+ */
+function fn_ergonet_seo_polish_cls_reserve(): string
+{
+    return '<style id="erg-cls-reserve">'
+        . '@media (min-width:768px){.homepage-banners .banners.owl-carousel{min-height:26.05vw}}'
+        . '@media (max-width:767px){.hidden-desktop .banners.owl-carousel{min-height:calc(100vw + 37px)}}'
+        . '</style>';
 }
 
 /**
