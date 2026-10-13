@@ -49,7 +49,46 @@ function fn_ergonet_seo_polish_dispatch_before_display(): void
         return;
     }
     $registered = true;
-    $view->registerFilter('output', 'fn_ergonet_seo_polish_rewrite');
+    fn_ergonet_seo_polish_add_output_filter($view, 'fn_ergonet_seo_polish_rewrite');
+}
+
+/**
+ * Καταχωρεί output filter και στη Smarty 4 (CS-Cart 4.18) και στη Smarty 5 (CS-Cart 4.21).
+ *
+ * ΓΙΑΤΙ ΟΧΙ ΣΚΕΤΟ registerFilter(): στην 4.21 το Tygh\SmartyEngine\Core::registerFilter() είναι
+ * ΚΕΝΟ — βγάζει μόνο E_USER_DEPRECATED και επιστρέφει. Κανένα σφάλμα, κανένα αποτέλεσμα:
+ * μετρήθηκε 13/10/2026 στο ergonet.store, το hook έτρεχε, το φίλτρο «καταχωρούνταν» και η
+ * σελίδα έβγαινε ανέγγιχτη. Η Smarty 5 εκτελεί output filters μόνο από extensions
+ * (Smarty::runOutputFilters → getExtensions()), οπότε εκεί προσθέτουμε δικό μας extension.
+ * Το dispatch_before_display τρέχει ΜΕΤΑ το setExtensions() του fn_init_templater, άρα το
+ * addExtension δεν σβήνεται.
+ *
+ * @param object   $view Tygh::$app['view']
+ * @param callable $cb   δέχεται το HTML (η Smarty 5 περνά και το Template ως 2ο όρισμα)
+ */
+function fn_ergonet_seo_polish_add_output_filter($view, callable $cb): void
+{
+    if (class_exists('\\Smarty\\Extension\\Base') && class_exists('\\Smarty\\Filter\\FilterPluginWrapper')
+        && method_exists($view, 'addExtension')
+    ) {
+        $view->addExtension(new class ($cb) extends \Smarty\Extension\Base {
+            /** @var callable */
+            private $cb;
+
+            public function __construct(callable $cb)
+            {
+                $this->cb = $cb;
+            }
+
+            /** @return list<\Smarty\Filter\FilterInterface> */
+            public function getOutputFilters(): array
+            {
+                return [new \Smarty\Filter\FilterPluginWrapper($this->cb)];
+            }
+        });
+        return;
+    }
+    $view->registerFilter('output', $cb);
 }
 
 /**
@@ -102,16 +141,34 @@ function fn_ergonet_seo_polish_rewrite(string $html): string
     // προσβάσιμο όνομα — ούτε για το Lighthouse ούτε για τυφλό χρήστη. Δύο
     // περιπτώσεις στον πυρήνα, και οι δύο σταθερές, οπότε στοχευμένη διόρθωση
     // αντί για γενικό κανόνα που θα μάντευε ετικέτες.
+    //
+    // ΜΟΝΟ ΑΝ ΤΟ LINK ΔΕΝ ΕΧΕΙ ΗΔΗ ΟΝΟΜΑ (v1.5.0, 13/10/2026). Η πρώτη εκδοχή έβαζε ετικέτα
+    // σε ΚΑΘΕ cm-dialog-opener χωρίς aria-label. Στο qualitytoners ήταν μόνο το «?», αλλά στο
+    // ergonet.store το ίδιο class έχουν το κουμπί «Σύνδεση» και τα «Αγοράστε με 1-κλικ» —
+    // και το aria-label ΥΠΕΡΙΣΧΥΕΙ του ορατού κειμένου, οπότε ο αναγνώστης οθόνης θα
+    // διάβαζε «Βοήθεια» αντί για «Σύνδεση». Μετρήθηκε: 10 τέτοια στην αρχική. Τώρα η
+    // ετικέτα μπαίνει μόνο όταν δεν υπάρχει κείμενο, title, ή alt εικόνας μέσα στο link.
     $labels = [
         // «Ο λογαριασμός μου» — εικονίδιο χρήστη στην κεφαλίδα
-        '~(<a\s[^>]*class="[^"]*ty-account-info__title[^"]*"[^>]*)(>)~i'
-            => '$1 aria-label="' . __('my_account') . '"$2',
+        'ty-account-info__title' => __('my_account'),
         // Το «?» δίπλα σε πεδία — άνοιγμα βοηθητικού παραθύρου
-        '~(<a\s[^>]*class="[^"]*cm-dialog-opener[^"]*"(?![^>]*aria-label)[^>]*)(>)~i'
-            => '$1 aria-label="' . __('ergonet_seo_polish.help') . '"$2',
+        'cm-dialog-opener'       => __('ergonet_seo_polish.help'),
     ];
-    foreach ($labels as $pattern => $replacement) {
-        $out = preg_replace($pattern, $replacement, $html);
+    foreach ($labels as $class => $label) {
+        $out = preg_replace_callback(
+            '~<a(\s[^>]*class="[^"]*' . preg_quote($class, '~') . '[^"]*"[^>]*)>(.*?)</a>~is',
+            static function (array $m) use ($label): string {
+                if (preg_match('~\s(?:aria-label|aria-labelledby|title)\s*=\s*"[^"]*\S~i', $m[1]) === 1) {
+                    return $m[0];
+                }
+                $text = trim(html_entity_decode(strip_tags($m[2]), ENT_QUOTES, 'UTF-8'));
+                if ($text !== '' || preg_match('~<img\s[^>]*\balt\s*=\s*"[^"]*\S~i', $m[2]) === 1) {
+                    return $m[0];
+                }
+                return '<a aria-label="' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '"' . $m[1] . '>' . $m[2] . '</a>';
+            },
+            $html
+        );
         // Αποτυχία του preg (backtrack limit σε μεγάλη σελίδα) επιστρέφει null.
         // Κρατάμε το προηγούμενο HTML αντί να σερβίρουμε κενή σελίδα.
         if ($out !== null) {
@@ -233,7 +290,12 @@ function fn_ergonet_seo_polish_rewrite(string $html): string
     //
     // ΠΡΕΠΕΙ να μπει στο <head>: αν φτάσει μετά την πρώτη απόδοση, η μετατόπιση
     // έχει ήδη συμβεί και μετρηθεί.
-    $head = stripos($html, '</head>');
+    // ΟΙ ΚΑΝΟΝΕΣ ΑΥΤΟΥ ΤΟΥ ΜΠΛΟΚ ΕΙΝΑΙ ΤΟΥ ΘΕΜΑΤΟΣ ΤΟΥ QUALITYTONERS: ύψος του hero
+    // (1920×500 / 767×767), χρώματα αντίθεσης πάνω στη δική του παλέτα, στόχοι αφής στα
+    // δικά του στοιχεία. Σε άλλο θέμα θα άλλαζαν χρώματα και διαστάσεις που κανείς δεν
+    // ζήτησε — μετρημένο 13/10/2026: 7 από τους selectors υπάρχουν και στο ergonet_theme.
+    // Γι' αυτό είναι ρύθμιση· η προεπιλογή Y κρατά το qualitytoners ακριβώς όπως ήταν.
+    $head = Registry::get('addons.ergonet_seo_polish.theme_css') === 'N' ? false : stripos($html, '</head>');
     if ($head !== false) {
         $html = substr_replace($html, fn_ergonet_seo_polish_cls_reserve(), $head, 0);
     }

@@ -1,0 +1,25 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: ergonet_seo_polish\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: de\n"
+
+msgctxt "Addons::name::ergonet_seo_polish"
+msgid "Ergonet SEO Polish"
+msgstr "Ergonet SEO Polish"
+
+msgctxt "Addons::description::ergonet_seo_polish"
+msgid "Fixes the Lighthouse SEO and accessibility findings produced by the CS-Cart core: anchors without href, links without an accessible name, iframe titles, heading order."
+msgstr "Fixes the Lighthouse SEO and accessibility findings produced by the CS-Cart core: anchors without href, links without an accessible name, iframe titles, heading order."
+
+msgctxt "SettingsOptions::ergonet_seo_polish::enabled"
+msgid "Enabled"
+msgstr "Enabled"
+
+msgctxt "SettingsOptions::ergonet_seo_polish::theme_css"
+msgid "Theme fixes for the qualitytoners theme (hero height, contrast colours, tap targets)"
+msgstr "Theme fixes for the qualitytoners theme (hero height, contrast colours, tap targets)"
+
+msgctxt "Languages::ergonet_seo_polish.help"
+msgid "Help"
+msgstr "Hilfe"
